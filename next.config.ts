@@ -5,12 +5,7 @@ const nextConfig: NextConfig = {
   // Isso garante que o módulo seja carregado em runtime, não em build time.
   serverExternalPackages: ['firebase-admin', 'firebase-admin/app', 'firebase-admin/auth', 'firebase-admin/firestore'],
 
-  // Ignorar erros de ESLint no build para não bloquear o deploy.
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-
-  // Ignorar erros de TypeScript no build também (já validamos com tsc --noEmit)
+  // Ignorar erros de TypeScript no build (já validamos com tsc --noEmit)
   typescript: {
     ignoreBuildErrors: false,
   },
