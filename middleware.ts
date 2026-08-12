@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+function getAllowedOrigins(): string[] {
+  return (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean)
+}
+
 function corsHeaders(origin: string | null) {
-  const allowedOrigin = process.env.ALLOWED_ORIGIN
+  const allowedOrigins = getAllowedOrigins()
+  const isAllowed = origin !== null && allowedOrigins.includes(origin)
 
   return {
-    'Access-Control-Allow-Origin': origin === allowedOrigin ? origin : allowedOrigin ?? '',
+    'Access-Control-Allow-Origin': isAllowed ? origin! : '',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Kofre-Perfil-Id',
     'Vary': 'Origin',
