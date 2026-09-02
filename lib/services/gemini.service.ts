@@ -7,7 +7,9 @@ export async function extrairEClassificarItensFatura(
   
   const apiKey = process.env.GEMINI_API_KEY;
   const baseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  
+  const MODEL_PRIMARY = process.env.GEMINI_MODEL_PRIMARY || 'gemini-3.6-flash';
+  const MODEL_FALLBACK = process.env.GEMINI_MODEL_FALLBACK || 'gemini-3.5-flash-lite';
   
   if (!apiKey) {
     console.error('GEMINI_API_KEY não configurada no ambiente.');
@@ -34,7 +36,7 @@ Texto bruto da fatura:
 ${textoBruto.substring(0, 30000)}
   `;
 
-  try {
+  const fetchGemini = async (model: string) => {
     const response = await fetch(`${baseUrl}/models/${model}:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
@@ -49,8 +51,7 @@ ${textoBruto.substring(0, 30000)}
     });
 
     if (!response.ok) {
-      console.error('Erro Gemini API:', await response.text());
-      return [];
+      throw new Error(`Erro na API (${model}): ${await response.text()}`);
     }
 
     const data = await response.json();
@@ -59,8 +60,18 @@ ${textoBruto.substring(0, 30000)}
     if (text) {
       return JSON.parse(text);
     }
+    throw new Error('Resposta vazia');
+  };
+
+  try {
+    return await fetchGemini(MODEL_PRIMARY);
   } catch (error) {
-    console.error('Erro ao processar Gemini:', error);
+    console.warn(`Falha ao usar modelo primário (${MODEL_PRIMARY}). Tentando fallback...`, error);
+    try {
+      return await fetchGemini(MODEL_FALLBACK);
+    } catch (fallbackError) {
+      console.error(`Falha no modelo de fallback (${MODEL_FALLBACK}):`, fallbackError);
+    }
   }
 
   return [];

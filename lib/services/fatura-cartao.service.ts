@@ -43,7 +43,54 @@ export async function analisarFatura(
   }));
 
   // Usa o Gemini para extrair as despesas do texto bruto (lidando com erros de OCR e texto esmagado) E classificar
-  const itensExtraidos = await extrairEClassificarItensFatura(texto, categoriasDisponiveis);
+  let itensExtraidos = await extrairEClassificarItensFatura(texto, categoriasDisponiveis);
+
+  // Fallback: Se o Gemini falhar (sem chave de API ou erro), usamos a extração por Regex
+  if (!itensExtraidos || itensExtraidos.length === 0) {
+    const lines = texto.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      const matchData = trimmed.match(/^.*?(\d{2}\/\d{2}|\d{2}\s+[A-Za-z]{3})\s+(.+?)\s+([R$\s\-−]*[\d.]+,\d{2}(?:\s*[-−])?)$/);
+      const matchSemData = trimmed.match(/^(IOF|ANUIDADE|ENCARGOS|MULTA|MORA|JUROS|TARIFA)(.+?)\s+([R$\s\-−]*[\d.]+,\d{2}(?:\s*[-−])?)$/i);
+
+      let descricao = '';
+      let valorStr = '';
+
+      if (matchData) {
+        descricao = `${matchData[1]} ${matchData[2]}`.trim();
+        valorStr = matchData[3];
+      } else if (matchSemData) {
+        descricao = `${matchSemData[1]}${matchSemData[2]}`.trim();
+        valorStr = matchSemData[3];
+      }
+
+      if (descricao && valorStr) {
+        const descUpper = descricao.toUpperCase();
+        if (descUpper.includes('PAGTO') || descUpper.includes('PAGAMENTO') || descUpper.includes('REVERSAO')) {
+          continue;
+        }
+
+        const isCredit = valorStr.includes('-') || valorStr.includes('−');
+        const rawNumber = valorStr.replace(/[^\d,]/g, '').replace(',', '.');
+        let valor = parseFloat(rawNumber);
+        
+        if (isCredit) {
+          valor = -Math.abs(valor);
+        }
+
+        if (!isNaN(valor) && valor !== 0 && Math.abs(valor) < 1000000) {
+          itensExtraidos.push({
+            itemDescricao: descricao,
+            valor,
+            categoriaNome: 'Outros',
+            categoriaNova: true
+          });
+        }
+      }
+    }
+  }
 
   const mergedItens = itensExtraidos.map((item) => {
     return {
