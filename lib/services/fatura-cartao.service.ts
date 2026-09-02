@@ -33,16 +33,54 @@ export async function analisarFatura(
 ): Promise<AnaliseFaturaResponse> {
   const texto = await extrairTextoPdf(pdfBuffer);
   
-  // Basic mock parsing (replace with real regex or logic based on text)
   const lines = texto.split('\n');
   const itens = [];
   
   for (const line of lines) {
-    const match = line.match(/(.+?)\s+R\$\s*([\d,.]+)/i) || line.match(/(.+?)\s+([\d,.]+)/i);
-    if (match) {
-      const valor = parseFloat(match[2].replace('.', '').replace(',', '.'));
-      if (!isNaN(valor) && valor > 0) {
-        itens.push({ descricao: match[1].trim(), valor });
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Match transactions with Date: 
+    // Supports "18/07 Desc", "16 JUL Desc", and optional OCR garbage at the start like "1 02/06 Desc"
+    const matchData = trimmed.match(/^.*?(\d{2}\/\d{2}|\d{2}\s+[A-Za-z]{3})\s+(.+?)\s+([R$\s\-−]*[\d.]+,\d{2}(?:\s*[-−])?)$/);
+    
+    // Match transactions without Date but specific keywords: "IOF diário 0,88"
+    const matchSemData = trimmed.match(/^(IOF|ANUIDADE|ENCARGOS|MULTA|MORA|JUROS|TARIFA)(.+?)\s+([R$\s\-−]*[\d.]+,\d{2}(?:\s*[-−])?)$/i);
+
+    let descricao = '';
+    let valorStr = '';
+
+    if (matchData) {
+      descricao = `${matchData[1]} ${matchData[2]}`.trim();
+      valorStr = matchData[3];
+    } else if (matchSemData) {
+      descricao = `${matchSemData[1]}${matchSemData[2]}`.trim();
+      valorStr = matchSemData[3];
+    }
+
+    if (descricao && valorStr) {
+      // Ignore payments and reversals to avoid double counting
+      const descUpper = descricao.toUpperCase();
+      if (descUpper.includes('PAGTO') || descUpper.includes('PAGAMENTO') || descUpper.includes('REVERSAO')) {
+        continue;
+      }
+
+      // Check if it's a credit/negative value
+      const isCredit = valorStr.includes('-') || valorStr.includes('−');
+
+      // Strip everything except digits and the decimal comma, then convert comma to dot
+      const rawNumber = valorStr.replace(/[^\d,]/g, '').replace(',', '.');
+      let valor = parseFloat(rawNumber);
+      
+      if (isCredit) {
+        valor = -Math.abs(valor);
+      }
+
+      if (!isNaN(valor) && valor !== 0) {
+        // Only add if it's a realistic value (prevents barcode misinterpretations)
+        if (Math.abs(valor) < 1000000) {
+          itens.push({ descricao, valor });
+        }
       }
     }
   }

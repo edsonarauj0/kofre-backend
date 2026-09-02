@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300 // Allow up to 5 minutes for Gemini processing
 
 import { NextRequest } from 'next/server';
 import { verifyAuth, getPerfilId } from '@/lib/auth/middleware';

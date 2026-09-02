@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic'
+export const maxDuration = 300
 
 import { NextRequest } from 'next/server';
 import { verifyAuth, getPerfilId } from '@/lib/auth/middleware';
