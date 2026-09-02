@@ -1,4 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
+import { atualizarSaldoConta } from './conta.service';
 import { extrairEClassificarItensFatura, extrairTextoPdf } from './gemini.service';
 
 export interface AnaliseFaturaResponse {
@@ -113,10 +114,12 @@ export async function processarFatura(
   perfilId: string | null | undefined,
   data: ProcessarFaturaRequest
 ): Promise<ProcessarFaturaResponse> {
-  const basePath = perfilId ? `perfis/${perfilId}` : `usuarios/${uid}`;
+  const basePath = `usuarios/${uid}`;
+  const resolvedPerfilId = perfilId || uid;
   const histRef = adminDb.collection(`${basePath}/importacoes`).doc();
   const importacaoId = histRef.id;
   let criadas = 0;
+  let totalValor = 0;
 
   for (const item of data.itens) {
     let catId = item.categoriaId;
@@ -125,8 +128,13 @@ export async function processarFatura(
       const catRef = adminDb.collection(`${basePath}/categorias`).doc();
       await catRef.set({
         nome: item.categoriaNome,
-        tipo: 'despesa',
-        createdAt: new Date()
+        tipo: 'DESPESA',
+        perfilFinanceiroId: resolvedPerfilId,
+        excluido: false,
+        createdAt: new Date(),
+        createdBy: uid,
+        updatedAt: new Date(),
+        updatedBy: uid
       });
       catId = catRef.id;
     }
@@ -155,27 +163,37 @@ export async function processarFatura(
       parcelaTotal: null,
       grupoParcelamentoId: null,
       divisoes: [],
-      perfilFinanceiroId: perfilId || uid,
+      perfilFinanceiroId: resolvedPerfilId,
       origem: 'fatura',
       importacaoId: importacaoId,
+      excluido: false,
       createdAt: new Date(),
       createdBy: uid,
       updatedAt: new Date(),
       updatedBy: uid
     });
     criadas++;
+    totalValor += (item.valor || 0);
   }
 
   await histRef.set({
     contaId: data.contaId,
+    perfilFinanceiroId: resolvedPerfilId,
     totalTransacoes: criadas,
     referencia: (data as any).referencia || '',
     vencimento: (data as any).vencimento || null,
     arquivo: (data as any).nomeArquivo || 'Fatura Importada',
     valorImportadoPdf: (data as any).totalFatura || 0,
     excluido: false,
-    createdAt: new Date()
+    createdAt: new Date(),
+    createdBy: uid,
+    updatedAt: new Date(),
+    updatedBy: uid
   });
+
+  if (totalValor > 0) {
+    await atualizarSaldoConta(uid, data.contaId, -totalValor);
+  }
 
   return {
     sucesso: true,
@@ -190,16 +208,18 @@ export async function listarHistorico(
   uid: string, 
   perfilId: string | null | undefined, 
   contaId: string
-): Promise<HistoricoImportacaoResponse[]> {
-  const basePath = perfilId ? `perfis/${perfilId}` : `usuarios/${uid}`;
+): Promise<any[]> {
+  const basePath = `usuarios/${uid}`;
   const snapshot = await adminDb.collection(`${basePath}/importacoes`)
     .where('contaId', '==', contaId)
     .where('excluido', '==', false)
     .orderBy('createdAt', 'desc')
-    .limit(12)
+    .limit(20)
     .get();
 
-  return snapshot.docs.map(doc => ({
+  if (snapshot.empty) return [];
+
+  const importacoes = snapshot.docs.map(doc => ({
     id: doc.id,
     contaId: doc.data().contaId,
     arquivo: doc.data().arquivo || 'Fatura Importada',
@@ -207,8 +227,25 @@ export async function listarHistorico(
     totalTransacoes: doc.data().totalTransacoes,
     referencia: doc.data().referencia,
     vencimento: doc.data().vencimento,
-    valorImportadoPdf: doc.data().valorImportadoPdf
-  })) as HistoricoImportacaoResponse[];
+    valorImportadoPdf: doc.data().valorImportadoPdf,
+    transacoes: []
+  })) as any[];
+
+  // Fetch transacoes for these importacoes
+  const transacoesSnap = await adminDb.collection(`${basePath}/transacoes`)
+    .where('contaId', '==', contaId)
+    .where('origem', '==', 'fatura')
+    .where('excluido', '==', false)
+    .get();
+  
+  if (!transacoesSnap.empty) {
+    const allTransacoes = transacoesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    for (const imp of importacoes) {
+      imp.transacoes = allTransacoes.filter((t: any) => t.importacaoId === imp.id);
+    }
+  }
+
+  return importacoes;
 }
 
 export async function excluirImportacao(
@@ -216,25 +253,34 @@ export async function excluirImportacao(
   perfilId: string | null | undefined,
   importacaoId: string
 ): Promise<void> {
-  const basePath = perfilId ? `perfis/${perfilId}` : `usuarios/${uid}`;
+  const basePath = `usuarios/${uid}`;
   
-  // Update the importacao document
   const importacaoRef = adminDb.collection(`${basePath}/importacoes`).doc(importacaoId);
   await importacaoRef.update({
     excluido: true,
     updatedAt: new Date()
   });
 
-  // Delete all transactions linked to this import
   const snapshot = await adminDb.collection(`${basePath}/transacoes`)
     .where('importacaoId', '==', importacaoId)
     .get();
 
   if (!snapshot.empty) {
+    let totalValor = 0;
+    let contaIdDaImportacao: string | null = null;
     const batch = adminDb.batch();
+    
     snapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
+      const data = doc.data();
+      if (!contaIdDaImportacao) contaIdDaImportacao = data.contaId;
+      totalValor += (data.valor || 0);
+      batch.update(doc.ref, { excluido: true, updatedAt: new Date() });
     });
+    
     await batch.commit();
+
+    if (totalValor > 0 && contaIdDaImportacao) {
+      await atualizarSaldoConta(uid, contaIdDaImportacao, totalValor);
+    }
   }
 }
