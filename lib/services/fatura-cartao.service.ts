@@ -1,5 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { classificarItensFatura, extrairTextoPdf } from './gemini.service';
+import { extrairEClassificarItensFatura, extrairTextoPdf } from './gemini.service';
 
 export interface AnaliseFaturaResponse {
   itens: Array<{ descricao: string; valor: number; data?: string; categoriaId?: string; categoriaNome?: string; categoriaNova?: boolean }>;
