@@ -141,6 +141,16 @@ export async function processarFatura(
 
     const transacaoRef = adminDb.collection(`${basePath}/transacoes`).doc();
     const rawDate = (item as any).dataLancamento || item.data;
+    
+    // Ensure invoice vencimento is used
+    let dataVencFatura = (data as any).vencimento || null;
+    if (dataVencFatura) {
+      dataVencFatura = new Date(dataVencFatura).toISOString().slice(0, 10);
+    } else {
+      // Fallback to today if none provided (rare)
+      dataVencFatura = new Date().toISOString().slice(0, 10);
+    }
+    
     await transacaoRef.set({
       descricao: item.descricao,
       tipo: 'DESPESA',
@@ -149,13 +159,13 @@ export async function processarFatura(
       dataLancamento: rawDate ? new Date(rawDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
       observacao: null,
       recorrente: false,
-      meioPagamento: null,
+      meioPagamento: 'CREDITO',
       contaId: data.contaId,
       contaPagamentoId: null,
       categoriaId: catId || 'outros',
-      statusPagamento: 'PAGO',
-      dataVencimento: null,
-      dataPagamento: rawDate ? new Date(rawDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      statusPagamento: 'PENDENTE',
+      dataVencimento: dataVencFatura,
+      dataPagamento: null,
       compartilhada: false,
       grupoCompartilhamentoId: null,
       parcelada: false,
@@ -191,9 +201,12 @@ export async function processarFatura(
     updatedBy: uid
   });
 
-  if (totalValor > 0) {
-    await atualizarSaldoConta(uid, data.contaId, -totalValor);
-  }
+  // Faturas de cartão de crédito criam lançamentos PENDENTES.
+  // O saldo da conta SÓ DEVE SER ATUALIZADO quando a fatura for paga (transações marcadas como PAGO).
+  // No Java backend, transações PENDENTES não descontam do saldo da conta principal até o pagamento.
+  // if (totalValor > 0) {
+  //   await atualizarSaldoConta(uid, data.contaId, -totalValor);
+  // }
 
   return {
     sucesso: true,
@@ -273,7 +286,9 @@ export async function excluirImportacao(
     snapshot.docs.forEach(doc => {
       const data = doc.data();
       if (!contaIdDaImportacao) contaIdDaImportacao = data.contaId;
-      totalValor += (data.valor || 0);
+      if (data.statusPagamento === 'PAGO') {
+        totalValor += (data.valor || 0);
+      }
       batch.update(doc.ref, { excluido: true, updatedAt: new Date() });
     });
     
