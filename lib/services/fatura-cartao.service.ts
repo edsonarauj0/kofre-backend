@@ -130,15 +130,35 @@ export async function processarFatura(
     }
 
     const transacaoRef = adminDb.collection(`${basePath}/transacoes`).doc();
+    const rawDate = (item as any).dataLancamento || item.data;
     await transacaoRef.set({
-      contaId: data.contaId,
-      categoriaId: catId || 'outros',
-      valor: item.valor,
       descricao: item.descricao,
-      data: item.data ? new Date(item.data) : new Date(),
-      tipo: 'despesa',
+      tipo: 'DESPESA',
+      valor: item.valor,
+      valorOriginal: item.valor,
+      dataLancamento: rawDate ? new Date(rawDate).toISOString() : new Date().toISOString(),
+      observacao: null,
+      recorrente: false,
+      meioPagamento: null,
+      contaId: data.contaId,
+      contaPagamentoId: null,
+      categoriaId: catId || 'outros',
+      statusPagamento: 'PAGO',
+      dataVencimento: null,
+      dataPagamento: rawDate ? new Date(rawDate).toISOString() : new Date().toISOString(),
+      compartilhada: false,
+      grupoCompartilhamentoId: null,
+      parcelada: false,
+      parcelaNumero: null,
+      parcelaTotal: null,
+      grupoParcelamentoId: null,
+      divisoes: [],
+      perfilFinanceiroId: perfilId || uid,
       origem: 'fatura',
-      createdAt: new Date()
+      createdAt: new Date(),
+      createdBy: uid,
+      updatedAt: new Date(),
+      updatedBy: uid
     });
     criadas++;
   }
@@ -147,6 +167,10 @@ export async function processarFatura(
   await histRef.set({
     contaId: data.contaId,
     totalTransacoes: criadas,
+    referencia: (data as any).referencia || '',
+    vencimento: (data as any).vencimento || null,
+    arquivo: (data as any).nomeArquivo || 'Fatura Importada',
+    valorImportadoPdf: (data as any).totalFatura || 0,
     excluido: false,
     createdAt: new Date()
   });
@@ -172,6 +196,9 @@ export async function listarHistorico(
     contaId: doc.data().contaId,
     arquivo: doc.data().arquivo || 'Fatura Importada',
     data: doc.data().createdAt?.toDate().toISOString(),
-    totalTransacoes: doc.data().totalTransacoes
+    totalTransacoes: doc.data().totalTransacoes,
+    referencia: doc.data().referencia,
+    vencimento: doc.data().vencimento,
+    valorImportadoPdf: doc.data().valorImportadoPdf
   })) as HistoricoImportacaoResponse[];
 }
