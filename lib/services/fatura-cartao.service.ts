@@ -114,6 +114,8 @@ export async function processarFatura(
   data: ProcessarFaturaRequest
 ): Promise<ProcessarFaturaResponse> {
   const basePath = perfilId ? `perfis/${perfilId}` : `usuarios/${uid}`;
+  const histRef = adminDb.collection(`${basePath}/importacoes`).doc();
+  const importacaoId = histRef.id;
   let criadas = 0;
 
   for (const item of data.itens) {
@@ -136,7 +138,7 @@ export async function processarFatura(
       tipo: 'DESPESA',
       valor: item.valor,
       valorOriginal: item.valor,
-      dataLancamento: rawDate ? new Date(rawDate).toISOString() : new Date().toISOString(),
+      dataLancamento: rawDate ? new Date(rawDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
       observacao: null,
       recorrente: false,
       meioPagamento: null,
@@ -145,7 +147,7 @@ export async function processarFatura(
       categoriaId: catId || 'outros',
       statusPagamento: 'PAGO',
       dataVencimento: null,
-      dataPagamento: rawDate ? new Date(rawDate).toISOString() : new Date().toISOString(),
+      dataPagamento: rawDate ? new Date(rawDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
       compartilhada: false,
       grupoCompartilhamentoId: null,
       parcelada: false,
@@ -155,6 +157,7 @@ export async function processarFatura(
       divisoes: [],
       perfilFinanceiroId: perfilId || uid,
       origem: 'fatura',
+      importacaoId: importacaoId,
       createdAt: new Date(),
       createdBy: uid,
       updatedAt: new Date(),
@@ -163,7 +166,6 @@ export async function processarFatura(
     criadas++;
   }
 
-  const histRef = adminDb.collection(`${basePath}/importacoes`).doc();
   await histRef.set({
     contaId: data.contaId,
     totalTransacoes: criadas,
@@ -175,7 +177,13 @@ export async function processarFatura(
     createdAt: new Date()
   });
 
-  return { sucesso: true, transacoesCriadas: criadas };
+  return {
+    sucesso: true,
+    contaId: data.contaId,
+    totalProcessado: criadas,
+    totalFatura: (data as any).totalFatura || 0,
+    importadoEm: new Date().toISOString()
+  } as any;
 }
 
 export async function listarHistorico(
@@ -201,4 +209,32 @@ export async function listarHistorico(
     vencimento: doc.data().vencimento,
     valorImportadoPdf: doc.data().valorImportadoPdf
   })) as HistoricoImportacaoResponse[];
+}
+
+export async function excluirImportacao(
+  uid: string,
+  perfilId: string | null | undefined,
+  importacaoId: string
+): Promise<void> {
+  const basePath = perfilId ? `perfis/${perfilId}` : `usuarios/${uid}`;
+  
+  // Update the importacao document
+  const importacaoRef = adminDb.collection(`${basePath}/importacoes`).doc(importacaoId);
+  await importacaoRef.update({
+    excluido: true,
+    updatedAt: new Date()
+  });
+
+  // Delete all transactions linked to this import
+  const snapshot = await adminDb.collection(`${basePath}/transacoes`)
+    .where('importacaoId', '==', importacaoId)
+    .get();
+
+  if (!snapshot.empty) {
+    const batch = adminDb.batch();
+    snapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+  }
 }
