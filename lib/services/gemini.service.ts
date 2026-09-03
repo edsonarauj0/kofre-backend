@@ -31,6 +31,8 @@ Retorne APENAS um JSON válido contendo um array de objetos, onde cada objeto te
 - "categoriaId": string (se encontrar uma categoria existente correspondente)
 - "categoriaNome": string (nome da categoria encontrada ou o nome de uma nova categoria sugerida)
 - "categoriaNova": boolean (true se você sugeriu uma categoria que não estava na lista)
+- "parcelaAtual": number (ex: se a descrição for "COMPRA 04/12", extraia 4)
+- "totalParcelas": number (ex: se a descrição for "COMPRA 04/12", extraia 12)
 
 Texto bruto da fatura:
 ${textoBruto.substring(0, 30000)}

@@ -8,7 +8,7 @@ export interface AnaliseFaturaResponse {
 }
 
 export interface ProcessarFaturaRequest {
-  itens: Array<{ descricao: string; valor: number; data?: string; categoriaId?: string; categoriaNome?: string; categoriaNova?: boolean }>;
+  itens: Array<{ descricao: string; valor: number; data?: string; categoriaId?: string; categoriaNome?: string; categoriaNova?: boolean; parcelaAtual?: number; totalParcelas?: number }>;
   contaId: string;
 }
 
@@ -139,7 +139,6 @@ export async function processarFatura(
       catId = catRef.id;
     }
 
-    const transacaoRef = adminDb.collection(`${basePath}/transacoes`).doc();
     const rawDate = (item as any).dataLancamento || item.data;
     
     // Ensure invoice vencimento is used
@@ -151,39 +150,102 @@ export async function processarFatura(
       dataVencFatura = new Date().toISOString().slice(0, 10);
     }
     
-    await transacaoRef.set({
-      descricao: item.descricao,
-      tipo: 'DESPESA',
-      valor: item.valor,
-      valorOriginal: item.valor,
-      dataLancamento: rawDate ? new Date(rawDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-      observacao: null,
-      recorrente: false,
-      meioPagamento: 'CREDITO',
-      contaId: data.contaId,
-      contaPagamentoId: null,
-      categoriaId: catId || 'outros',
-      statusPagamento: 'PENDENTE',
-      dataVencimento: dataVencFatura,
-      dataPagamento: null,
-      compartilhada: false,
-      grupoCompartilhamentoId: null,
-      parcelada: false,
-      parcelaNumero: null,
-      parcelaTotal: null,
-      grupoParcelamentoId: null,
-      divisoes: [],
-      perfilFinanceiroId: resolvedPerfilId,
-      origem: 'fatura',
-      importacaoId: importacaoId,
-      excluido: false,
-      createdAt: new Date(),
-      createdBy: uid,
-      updatedAt: new Date(),
-      updatedBy: uid
-    });
-    criadas++;
-    totalValor += (item.valor || 0);
+    let pAtual = item.parcelaAtual || null;
+    let pTotal = item.totalParcelas || null;
+    
+    // Fallback if Gemini missed it, extract from description
+    if (!pAtual || !pTotal) {
+      const match = item.descricao.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+      if (match) {
+        pAtual = parseInt(match[1], 10);
+        pTotal = parseInt(match[2], 10);
+      }
+    }
+
+    if (pAtual && pTotal && pTotal > 1 && pAtual <= pTotal) {
+      const grupoParcelamentoId = adminDb.collection('dummy').doc().id;
+      const parsedDataLancamento = new Date(rawDate ? rawDate : new Date());
+      const parsedDataVencimento = new Date(dataVencFatura);
+      const cleanDescricao = item.descricao.replace(/\s*\d{1,2}\/\d{1,2}\s*$/, '').trim();
+      
+      for (let i = pAtual; i <= pTotal; i++) {
+         const dataLanc = new Date(parsedDataLancamento);
+         dataLanc.setMonth(dataLanc.getMonth() + (i - pAtual));
+         
+         const dataVenc = new Date(parsedDataVencimento);
+         dataVenc.setMonth(dataVenc.getMonth() + (i - pAtual));
+         
+         const parcelRef = adminDb.collection(`${basePath}/transacoes`).doc();
+         await parcelRef.set({
+            descricao: cleanDescricao,
+            tipo: 'DESPESA',
+            valor: item.valor,
+            valorOriginal: item.valor,
+            dataLancamento: dataLanc.toISOString().slice(0, 10),
+            observacao: null,
+            recorrente: false,
+            meioPagamento: 'CREDITO',
+            contaId: data.contaId,
+            contaPagamentoId: null,
+            categoriaId: catId || 'outros',
+            statusPagamento: 'PENDENTE',
+            dataVencimento: dataVenc.toISOString().slice(0, 10),
+            dataPagamento: null,
+            compartilhada: false,
+            grupoCompartilhamentoId: null,
+            parcelada: true,
+            parcelaNumero: i,
+            parcelaTotal: pTotal,
+            grupoParcelamentoId: grupoParcelamentoId,
+            divisoes: [],
+            perfilFinanceiroId: resolvedPerfilId,
+            origem: 'fatura',
+            importacaoId: importacaoId,
+            excluido: false,
+            createdAt: new Date(),
+            createdBy: uid,
+            updatedAt: new Date(),
+            updatedBy: uid
+         });
+         criadas++;
+         totalValor += item.valor;
+      }
+    } else {
+      const transacaoRef = adminDb.collection(`${basePath}/transacoes`).doc();
+      await transacaoRef.set({
+        descricao: item.descricao,
+        tipo: 'DESPESA',
+        valor: item.valor,
+        valorOriginal: item.valor,
+        dataLancamento: rawDate ? new Date(rawDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+        observacao: null,
+        recorrente: false,
+        meioPagamento: 'CREDITO',
+        contaId: data.contaId,
+        contaPagamentoId: null,
+        categoriaId: catId || 'outros',
+        statusPagamento: 'PENDENTE',
+        dataVencimento: dataVencFatura,
+        dataPagamento: null,
+        compartilhada: false,
+        grupoCompartilhamentoId: null,
+        parcelada: false,
+        parcelaNumero: null,
+        parcelaTotal: null,
+        grupoParcelamentoId: null,
+        divisoes: [],
+        perfilFinanceiroId: resolvedPerfilId,
+        origem: 'fatura',
+        importacaoId: importacaoId,
+        excluido: false,
+        createdAt: new Date(),
+        createdBy: uid,
+        updatedAt: new Date(),
+        updatedBy: uid
+      });
+      criadas++;
+      totalValor += (item.valor || 0);
+    }
   }
 
   await histRef.set({
