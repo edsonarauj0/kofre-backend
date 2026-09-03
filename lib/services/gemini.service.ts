@@ -3,7 +3,7 @@ import pdfParse from 'pdf-parse';
 export async function extrairEClassificarItensFatura(
   textoBruto: string,
   categoriasDisponiveis: Array<{ id: string; nome: string; tipo: string; grupo: string }>
-): Promise<Array<{ itemDescricao: string; valor: number; data?: string; categoriaId?: string; categoriaNome?: string; categoriaNova?: boolean; grupoCategoria?: string }>> {
+): Promise<Array<{ itemDescricao: string; valor: number; data?: string; categoriaId?: string; categoriaNome?: string; categoriaNova?: boolean; grupoCategoria?: string; parcelaAtual?: number; totalParcelas?: number }>> {
   
   const apiKey = process.env.GEMINI_API_KEY;
   const baseUrl = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';

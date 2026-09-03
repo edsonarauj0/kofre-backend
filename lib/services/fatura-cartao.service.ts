@@ -100,7 +100,9 @@ export async function analisarFatura(
       data: item.data,
       categoriaId: item.categoriaId,
       categoriaNome: item.categoriaNome || 'Outros',
-      categoriaNova: item.categoriaNova || false
+      categoriaNova: item.categoriaNova || false,
+      parcelaAtual: item.parcelaAtual || null,
+      totalParcelas: item.totalParcelas || null
     };
   });
 
